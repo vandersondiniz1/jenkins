@@ -1,0 +1,42 @@
+pipeline {
+	environment {
+		branch_name = "${env.GIT_BRANCH}"
+		docker_image = sh(script: "echo $branch_name | sed 's/feature[/]//g'", returnStdout: true).trim()
+		image_name = "${docker_image.toLowerCase()}"
+		exists_env = sh(script: "sudo test -f .env && echo 'exist' || echo 'not_exist'", returnStdout: true).trim()
+	}
+	agent any
+	options {
+		buildDiscarder logRotator(
+			daysToKeepStr: '1', // To Discard build after particular number of days
+			numToKeepStr: '10' // To Discard build after particular number of builds 
+		)
+	}
+	stages {
+		stage('Updating repository') {
+			steps {
+				sh "sudo git fetch --all"
+				sh "sudo git checkout $branch_name"
+				sh "sudo git reset --hard origin/$branch_name"
+				sh "sudo git pull -q -X theirs origin $branch_name"
+				sh "sudo chmod -R 777 ."
+			}
+		}
+		stage('Exists .env') {
+			steps {
+				script {
+					if (exists_env == 'exist') {
+						sh "sudo echo GIT_BRANCH=$image_name >> .env"
+					} else {
+						sh "sudo echo GIT_BRANCH=$image_name > .env"
+					}
+				}
+			}
+		}
+		stage('Building image') {
+			steps {
+				sh "sudo docker-compose up -d --build"
+			}
+		}
+	}
+}
